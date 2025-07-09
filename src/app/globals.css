@@ -1,0 +1,43 @@
+@import "tailwindcss";
+
+:root {
+  --background: #ffffff;
+  --foreground: #171717;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0a0a0a;
+    --foreground: #ededed;
+  }
+}
+
+/* Light mode styles */
+html.light {
+  --bg-color: white;
+  --text-color: black;
+  background-color: var(--bg-color);
+  color: var(--text-color);
+}
+
+/* Dark mode styles */
+html.dark {
+  --bg-color: #121212;
+  --text-color: #eee;
+  background-color: var(--bg-color);
+  color: var(--text-color);
+}
+
+/* Apply colors to body or root */
+body {
+  background-color: var(--bg-color);
+  color: var(--text-color);
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
