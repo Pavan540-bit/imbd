@@ -12,7 +12,7 @@ const page = () => {
         <h1 className='text-2xl font-medium text-amber-500'>About us page</h1>
          <HStack>
       <Button>Click me</Button>
-      <Button>Click me</Button>
+     
     </HStack>
         <p>lorem*2 ipsum dolor sit amet consectetur adipisicing elit.
         Quisquam, voluptatum. Quasi, cumque. Lorem ipsum dolor sit amet consectetur adipisicing elit.   
