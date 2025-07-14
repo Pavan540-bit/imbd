@@ -13,7 +13,7 @@ const Header = () => {
   return (
     <>
     <Providers>
-      <div className='flex justify-between items-center mx-2 max-w-5xl sm:mx-auto py-6'>
+      <div className='flex justify-between items-center mx-2  sm:mx-auto py-6 header-class'>
         <div className='flex'>
           <MenuItems title={'Home'} address={'/'} icon={<FaHome />} />
           <MenuItems title={'About'} address={'/about'} icon={<FcAbout />} />
