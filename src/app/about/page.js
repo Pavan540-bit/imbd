@@ -11,7 +11,7 @@ const page = () => {
     <div className='abt-div mx-auto space-y-4 p-4'>
         <h1 className='text-2xl font-medium text-amber-500'>About us page</h1>
          <HStack>
-      <Button>Click me</Button>
+      <Button>Click me ds</Button>
      
     </HStack>
         <p>lorem*2 ipsum dolor sit amet consectetur adipisicing elit.
