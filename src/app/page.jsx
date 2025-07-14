@@ -9,6 +9,7 @@ export default function Home() {
     { name: 'India', region: 'Asia' },
     { name: 'Germany', region: 'Europe' },
     { name: 'Japan', region: 'Asia' },
+    { name: 'philiphines', region: 'Asia' },
     { name: 'Brazil', region: 'South America' }
   ];
 
