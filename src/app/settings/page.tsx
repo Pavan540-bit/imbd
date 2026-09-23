@@ -3,7 +3,7 @@ import { loadAudit, loadPortfolio } from "@/lib/store";
 
 export const dynamic = "force-dynamic";
 
-export default function Page() {
-  const data = loadPortfolio();
-  return <SettingsScreen refreshedAt={data.marketRefreshedAt} audit={loadAudit()} />;
+export default async function Page() {
+  const data = await loadPortfolio();
+  return <SettingsScreen refreshedAt={data.marketRefreshedAt} audit={await loadAudit()} />;
 }

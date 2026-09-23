@@ -1,8 +1,9 @@
-import { getMeta, listAllocations, listAudit, listGoals, listHoldings, listSnapshots, listTransactions } from "./db";
+import { getMeta, listAllocations, listAudit, listGoals, listHoldings, listSnapshots, listTransactions, prepareDatabase } from "./db";
 import { buildPortfolio } from "./portfolio";
 import type { PortfolioResult } from "./types";
 
-export function loadPortfolio(asOf?: string): PortfolioResult {
+export async function loadPortfolio(asOf?: string): Promise<PortfolioResult> {
+  await prepareDatabase();
   return buildPortfolio({
     holdings: listHoldings(),
     transactions: listTransactions(),
@@ -14,6 +15,7 @@ export function loadPortfolio(asOf?: string): PortfolioResult {
   });
 }
 
-export function loadAudit() {
+export async function loadAudit() {
+  await prepareDatabase();
   return listAudit();
 }

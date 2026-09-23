@@ -5,18 +5,64 @@ import type { AllocationRow, AuditRow, GoalRow, HoldingRow, SnapshotRow, TxnRow 
 
 type Sql = DatabaseSync;
 
-const globalDb = globalThis as unknown as { __portfolioDb?: Sql };
+const globalDb = globalThis as unknown as { __portfolioDb?: Sql; __portfolioDirty?: boolean; __portfolioRemoteStamp?: string };
+
+export function dbFile(): string {
+  if (process.env.VERCEL) return path.join("/tmp", "portfolio.sqlite");
+  const dir = path.join(process.cwd(), "data");
+  fs.mkdirSync(dir, { recursive: true });
+  return path.join(dir, "portfolio.sqlite");
+}
+
+export function storageMode(): "local" | "blob" | "ephemeral" {
+  if (!process.env.VERCEL) return "local";
+  return process.env.BLOB_READ_WRITE_TOKEN ? "blob" : "ephemeral";
+}
+
+function closeDatabase() {
+  globalDb.__portfolioDb?.close();
+  globalDb.__portfolioDb = undefined;
+}
 
 function database(): Sql {
   if (!globalDb.__portfolioDb) {
-    const dir = path.join(process.cwd(), "data");
-    fs.mkdirSync(dir, { recursive: true });
-    const db = new DatabaseSync(path.join(dir, "portfolio.sqlite"));
-    db.exec("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;");
+    const db = new DatabaseSync(dbFile());
+    db.exec(process.env.VERCEL ? "PRAGMA journal_mode = DELETE; PRAGMA foreign_keys = ON;" : "PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;");
     migrate(db);
     globalDb.__portfolioDb = db;
   }
   return globalDb.__portfolioDb;
+}
+
+function markDirty() {
+  globalDb.__portfolioDirty = true;
+}
+
+export async function prepareDatabase() {
+  if (storageMode() === "blob" && !globalDb.__portfolioDirty) {
+    const { remotePortfolioStamp, downloadPortfolioDb } = await import("./blob-store");
+    const stamp = await remotePortfolioStamp();
+    const missing = !fs.existsSync(dbFile());
+    if (stamp && (stamp !== (globalDb.__portfolioRemoteStamp || "") || missing)) {
+      closeDatabase();
+      await downloadPortfolioDb(dbFile());
+      globalDb.__portfolioRemoteStamp = stamp;
+    }
+  }
+  database();
+}
+
+export async function flushDatabase() {
+  if (!globalDb.__portfolioDirty || storageMode() !== "blob") {
+    globalDb.__portfolioDirty = false;
+    return;
+  }
+  const db = database();
+  db.exec("PRAGMA wal_checkpoint(TRUNCATE);");
+  const { uploadPortfolioDb } = await import("./blob-store");
+  const stamp = await uploadPortfolioDb(dbFile());
+  if (stamp) globalDb.__portfolioRemoteStamp = stamp;
+  globalDb.__portfolioDirty = false;
 }
 
 function migrate(db: Sql) {
@@ -189,6 +235,7 @@ export function getHolding(id: string): HoldingRow | null {
 }
 
 export function upsertHolding(row: HoldingRow) {
+  markDirty();
   database()
     .prepare(
       `INSERT INTO holdings (
@@ -227,6 +274,7 @@ export function upsertHolding(row: HoldingRow) {
 }
 
 export function deleteHolding(id: string) {
+  markDirty();
   database().prepare("DELETE FROM holdings WHERE id = ?").run(id);
 }
 
@@ -254,6 +302,7 @@ function txnFrom(row: Record<string, unknown>): TxnRow {
 }
 
 export function upsertTransaction(row: TxnRow) {
+  markDirty();
   database()
     .prepare(
       `INSERT INTO transactions (id, holding_id, type, date, quantity, price, amount, fees, category, cashflow_kind, currency, notes, created_at)
@@ -270,6 +319,7 @@ export function upsertTransaction(row: TxnRow) {
 }
 
 export function deleteTransaction(id: string) {
+  markDirty();
   database().prepare("DELETE FROM transactions WHERE id = ?").run(id);
 }
 
@@ -289,6 +339,7 @@ export function listGoals(): GoalRow[] {
 }
 
 export function upsertGoal(row: GoalRow) {
+  markDirty();
   database()
     .prepare(
       `INSERT INTO goals (id, name, target_amount, target_date, monthly_contribution, notes, is_sample, created_at, updated_at)
@@ -301,6 +352,7 @@ export function upsertGoal(row: GoalRow) {
 }
 
 export function deleteGoal(id: string) {
+  markDirty();
   database().prepare("DELETE FROM goals WHERE id = ?").run(id);
 }
 
@@ -315,6 +367,7 @@ export function listAllocations(): AllocationRow[] {
 }
 
 export function upsertAllocation(row: AllocationRow) {
+  markDirty();
   database()
     .prepare(
       `INSERT INTO goal_allocations (id, goal_id, holding_id, amount) VALUES (?,?,?,?)
@@ -324,6 +377,7 @@ export function upsertAllocation(row: AllocationRow) {
 }
 
 export function deleteAllocation(goalId: string, holdingId: string) {
+  markDirty();
   database().prepare("DELETE FROM goal_allocations WHERE goal_id = ? AND holding_id = ?").run(goalId, holdingId);
 }
 
@@ -342,6 +396,7 @@ export function listSnapshots(): SnapshotRow[] {
 }
 
 export function upsertSnapshot(row: SnapshotRow) {
+  markDirty();
   database()
     .prepare(
       `INSERT INTO snapshots (id, date, total_assets, total_liabilities, net_worth, breakdown_json, note, created_at)
@@ -354,10 +409,12 @@ export function upsertSnapshot(row: SnapshotRow) {
 }
 
 export function deleteSnapshot(id: string) {
+  markDirty();
   database().prepare("DELETE FROM snapshots WHERE id = ?").run(id);
 }
 
 export function addAudit(entry: AuditRow) {
+  markDirty();
   database()
     .prepare("INSERT INTO audit_log (id, entity, entity_id, action, summary, created_at) VALUES (?,?,?,?,?,?)")
     .run(entry.id, entry.entity, entry.entityId, entry.action, entry.summary, entry.createdAt);
@@ -381,10 +438,12 @@ export function getMeta(key: string): string {
 }
 
 export function setMeta(key: string, value: string) {
+  markDirty();
   database().prepare("INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(key, value);
 }
 
 export function deleteSample() {
+  markDirty();
   const db = database();
   db.prepare("DELETE FROM holdings WHERE is_sample = 1").run();
   db.prepare("DELETE FROM goals WHERE is_sample = 1").run();
@@ -397,6 +456,7 @@ export function replaceAll(data: {
   allocations: AllocationRow[];
   snapshots: SnapshotRow[];
 }) {
+  markDirty();
   const db = database();
   db.exec("DELETE FROM goal_allocations; DELETE FROM transactions; DELETE FROM snapshots; DELETE FROM goals; DELETE FROM holdings;");
   for (const row of data.holdings) upsertHolding(row);

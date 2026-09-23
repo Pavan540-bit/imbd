@@ -48,7 +48,7 @@ export function SettingsScreen({ refreshedAt, audit }: { refreshedAt: string; au
         </form>
       </Section>
       <Section title="Backup">
-        <p className="text-sm text-muted-foreground">Records are stored in a SQLite database at data/portfolio.sqlite on this machine. Download a JSON backup before moving computers.</p>
+        <p className="text-sm text-muted-foreground">On this computer, records are stored in data/portfolio.sqlite. On Vercel, the project folder cannot be written, so the database is kept in a private Vercel Blob store after you connect one. Download a JSON backup before moving computers.</p>
         <a className="inline-flex h-10 items-center rounded-lg border px-3 text-sm" href="/api/backup">Download backup</a>
         <form className="mt-3 grid gap-2" onSubmit={(e) => { e.preventDefault(); run(() => importBackup(new FormData(e.currentTarget))); }}>
           <input type="file" name="file" accept="application/json,.json" required aria-label="Backup JSON" />

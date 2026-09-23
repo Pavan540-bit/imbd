@@ -5,5 +5,5 @@ export const dynamic = "force-dynamic";
 
 export default async function Page({ searchParams }: { searchParams: Promise<{ bucket?: string }> }) {
   const params = await searchParams;
-  return <HoldingsScreen data={loadPortfolio()} initialBucket={params.bucket || ""} />;
+  return <HoldingsScreen data={await loadPortfolio()} initialBucket={params.bucket || ""} />;
 }

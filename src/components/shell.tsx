@@ -52,7 +52,7 @@ const CRUMBS: Record<string, string> = {
   "/settings": "Settings",
 };
 
-export function Shell({ children, hasSample }: { children: React.ReactNode; hasSample: boolean }) {
+export function Shell({ children, hasSample, ephemeral }: { children: React.ReactNode; hasSample: boolean; ephemeral?: boolean }) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const { hidden, toggle } = usePrivacy();
@@ -134,6 +134,11 @@ export function Shell({ children, hasSample }: { children: React.ReactNode; hasS
         {hasSample ? (
           <div className="border-b bg-amber-50 px-4 py-2 text-sm text-amber-950 dark:bg-amber-950 dark:text-amber-100 md:px-6">
             Demonstration data is included and labeled Sample. These figures are not your portfolio. Remove them in Settings.
+          </div>
+        ) : null}
+        {ephemeral ? (
+          <div className="border-b bg-amber-50 px-4 py-2 text-sm text-amber-950 dark:bg-amber-950 dark:text-amber-100 md:px-6">
+            This Vercel deployment has nowhere durable to store the portfolio yet. In the Vercel project, open Storage, create a Blob store, connect it, and redeploy. Until then, records can disappear when the server restarts.
           </div>
         ) : null}
         <main className="px-4 py-5 md:px-6 md:py-6">{children}</main>

@@ -3,6 +3,6 @@ import { loadPortfolio } from "@/lib/store";
 
 export const dynamic = "force-dynamic";
 
-export default function Page() {
-  return <AllocationScreen data={loadPortfolio()} />;
+export default async function Page() {
+  return <AllocationScreen data={await loadPortfolio()} />;
 }

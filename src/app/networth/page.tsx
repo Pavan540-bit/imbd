@@ -3,6 +3,6 @@ import { loadPortfolio } from "@/lib/store";
 
 export const dynamic = "force-dynamic";
 
-export default function Page() {
-  return <NetWorthScreen data={loadPortfolio()} />;
+export default async function Page() {
+  return <NetWorthScreen data={await loadPortfolio()} />;
 }

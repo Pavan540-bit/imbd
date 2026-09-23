@@ -4,6 +4,8 @@ import { revalidatePath } from "next/cache";
 import { csvObjects } from "@/lib/csv";
 import {
   addAudit,
+  flushDatabase,
+  prepareDatabase,
   deleteAllocation,
   deleteGoal,
   deleteHolding,
@@ -35,7 +37,8 @@ import type { GoalRow, HoldingRow, SnapshotRow, TxnRow } from "@/lib/types";
 
 export type ActionResult = { ok: boolean; message?: string; error?: string; duplicate?: boolean };
 
-function refresh() {
+async function refresh() {
+  await flushDatabase();
   revalidatePath("/", "layout");
 }
 
@@ -199,11 +202,71 @@ function syncOpening(row: HoldingRow) {
   }
 }
 
+function lumpSumPlan(form: FormData, row: HoldingRow): string | null {
+  const lump = text(form, "lumpSumAmount");
+  if (!lump) return null;
+  const err = nonNegative(lump, "Lump sum");
+  if (err) return err;
+  if (Dec.parse(lump).isZero()) return null;
+  if (row.assetClass === "liability") return null;
+  if (row.assetClass === "mutual_fund") {
+    if (!row.purchaseDate) return "Set a purchase date for the lump sum.";
+    if (Dec.parse(row.quantity).isZero()) return "Enter the units bought with this lump sum.";
+  }
+  return null;
+}
+
+function recordLumpSum(form: FormData, row: HoldingRow) {
+  const lump = text(form, "lumpSumAmount");
+  if (!lump || Dec.parse(lump).isZero()) return;
+  const amount = Dec.parse(lump);
+  if (row.assetClass === "liability") {
+    upsertTransaction({
+      id: id(),
+      holdingId: row.id,
+      type: "lump_sum",
+      date: row.purchaseDate || todayISO(),
+      quantity: "0",
+      price: "0",
+      amount: amount.toFixed(2),
+      fees: "0",
+      category: "Lump sum",
+      cashflowKind: "expense",
+      currency: "INR",
+      notes: "Lump sum entered on the holding.",
+      createdAt: now(),
+    });
+    return;
+  }
+  if (row.assetClass !== "mutual_fund") return;
+  const qty = Dec.parse(row.quantity);
+  const avg = Dec.parse(row.avgCost);
+  const price = avg.isZero() ? amount.div(qty) : avg;
+  upsertTransaction({
+    id: id(),
+    holdingId: row.id,
+    type: "buy",
+    date: row.purchaseDate,
+    quantity: qty.toFixed(4),
+    price: price ? price.toFixed(4) : "0",
+    amount: amount.toFixed(2),
+    fees: "0",
+    category: "Lump sum",
+    cashflowKind: "investment",
+    currency: row.currency || "INR",
+    notes: "Lump sum purchase entered on the holding.",
+    createdAt: now(),
+  });
+}
+
 export async function saveHolding(form: FormData): Promise<ActionResult> {
+  await prepareDatabase();
   const existing = text(form, "id") ? getHolding(text(form, "id")) : null;
   const row = holdingFromForm(form, existing);
   const error = validateHolding(row);
   if (error) return { ok: false, error };
+  const lumpError = lumpSumPlan(form, row);
+  if (lumpError) return { ok: false, error: lumpError };
   if (existing && LEDGER.has(row.assetClass)) {
     const positional = listTransactions().filter(
       (t) => t.holdingId === row.id && ["buy", "sip", "opening", "sell", "redemption", "contribution", "withdrawal"].includes(t.type),
@@ -214,6 +277,7 @@ export async function saveHolding(form: FormData): Promise<ActionResult> {
     }
   }
   upsertHolding(row);
+  recordLumpSum(form, row);
   syncOpening(row);
   addAudit({
     id: id(),
@@ -223,11 +287,12 @@ export async function saveHolding(form: FormData): Promise<ActionResult> {
     summary: `${existing ? "Updated" : "Added"} ${row.name} (${row.assetClass}).`,
     createdAt: now(),
   });
-  refresh();
+  await refresh();
   return { ok: true };
 }
 
 export async function removeHolding(form: FormData): Promise<ActionResult> {
+  await prepareDatabase();
   const holdingId = text(form, "id");
   const holding = getHolding(holdingId);
   if (!holding) return { ok: false, error: "Holding was not found." };
@@ -241,7 +306,7 @@ export async function removeHolding(form: FormData): Promise<ActionResult> {
     summary: `Deleted ${holding.name} (${holding.assetClass}). Linked transactions were removed with it.`,
     createdAt: now(),
   });
-  refresh();
+  await refresh();
   return { ok: true };
 }
 
@@ -265,6 +330,7 @@ function txnFromForm(form: FormData, existing?: TxnRow | null): TxnRow {
 }
 
 export async function saveTransaction(form: FormData): Promise<ActionResult> {
+  await prepareDatabase();
   const existingId = text(form, "id");
   const existing = existingId ? listTransactions().find((t) => t.id === existingId) : null;
   const row = txnFromForm(form, existing);
@@ -336,20 +402,22 @@ export async function saveTransaction(form: FormData): Promise<ActionResult> {
     summary: `${existing ? "Updated" : "Added"} ${row.type} of ₹${row.amount} on ${row.date}.`,
     createdAt: now(),
   });
-  refresh();
+  await refresh();
   return { ok: true };
 }
 
 export async function removeTransaction(form: FormData): Promise<ActionResult> {
+  await prepareDatabase();
   const txnId = text(form, "id");
   if (text(form, "confirm") !== "yes") return { ok: false, error: "Deletion was not confirmed." };
   deleteTransaction(txnId);
   addAudit({ id: id(), entity: "transaction", entityId: txnId, action: "delete", summary: "Deleted a transaction.", createdAt: now() });
-  refresh();
+  await refresh();
   return { ok: true };
 }
 
 export async function saveGoal(form: FormData): Promise<ActionResult> {
+  await prepareDatabase();
   const existing = listGoals().find((g) => g.id === text(form, "id"));
   const target = text(form, "targetAmount");
   if (!text(form, "name")) return { ok: false, error: "Goal name is required." };
@@ -371,49 +439,53 @@ export async function saveGoal(form: FormData): Promise<ActionResult> {
   };
   upsertGoal(row);
   addAudit({ id: id(), entity: "goal", entityId: row.id, action: existing ? "update" : "create", summary: `${existing ? "Updated" : "Added"} goal ${row.name}.`, createdAt: now() });
-  refresh();
+  await refresh();
   return { ok: true };
 }
 
 export async function removeGoal(form: FormData): Promise<ActionResult> {
+  await prepareDatabase();
   if (text(form, "confirm") !== "yes") return { ok: false, error: "Deletion was not confirmed." };
   deleteGoal(text(form, "id"));
-  refresh();
+  await refresh();
   return { ok: true };
 }
 
 export async function saveAllocation(form: FormData): Promise<ActionResult> {
+  await prepareDatabase();
   const goalId = text(form, "goalId");
   const holdingId = text(form, "holdingId");
   const amount = text(form, "amount");
   if (!goalId || !holdingId) return { ok: false, error: "Choose a goal and a holding." };
   const err = nonNegative(amount, "Amount");
   if (err || !amount || Dec.parse(amount).isZero()) return { ok: false, error: err || "Enter an amount to assign." };
-  const portfolio = loadPortfolio();
+  const portfolio = await loadPortfolio();
   const holding = portfolio.holdings.find((h) => h.id === holdingId);
   if (!holding || holding.isLiability) return { ok: false, error: "Liabilities cannot be assigned to a goal." };
   const room = allocationRoom(holding.currentValue, listAllocations(), holdingId, goalId);
   if (room == null) return { ok: false, error: "This holding has no current value, so it cannot be assigned yet." };
   if (Dec.parse(amount).gt(room)) return { ok: false, error: `Only ₹${room.toFixed(2)} of this holding is still unassigned.` };
   upsertAllocation({ id: id(), goalId, holdingId, amount: Dec.parse(amount).toFixed(2) });
-  refresh();
+  await refresh();
   return { ok: true };
 }
 
 export async function removeAllocation(form: FormData): Promise<ActionResult> {
+  await prepareDatabase();
   deleteAllocation(text(form, "goalId"), text(form, "holdingId"));
-  refresh();
+  await refresh();
   return { ok: true };
 }
 
 export async function saveSnapshot(form: FormData): Promise<ActionResult> {
+  await prepareDatabase();
   const date = text(form, "date") || todayISO();
   if (!isDate(date)) return { ok: false, error: "Snapshot date is invalid." };
   const existing = listSnapshots().find((s) => s.date === date);
   if (existing && text(form, "confirmReplace") !== "yes") {
     return { ok: false, error: `A snapshot already exists for ${date}. Confirm to replace it.` };
   }
-  const portfolio = loadPortfolio(date);
+  const portfolio = await loadPortfolio(date);
   if (portfolio.incomplete) {
     return { ok: false, error: "A snapshot was not saved because some holdings have no current value. Enter those values first so the history is not invented." };
   }
@@ -429,20 +501,22 @@ export async function saveSnapshot(form: FormData): Promise<ActionResult> {
   };
   upsertSnapshot(row);
   addAudit({ id: id(), entity: "snapshot", entityId: row.id, action: "create", summary: `Recorded net worth snapshot for ${date}.`, createdAt: now() });
-  refresh();
+  await refresh();
   return { ok: true, message: "Snapshot saved from the values recorded on this date's holdings. Past prices are not reconstructed." };
 }
 
 export async function removeSnapshot(form: FormData): Promise<ActionResult> {
+  await prepareDatabase();
   if (text(form, "confirm") !== "yes") return { ok: false, error: "Deletion was not confirmed." };
   deleteSnapshot(text(form, "id"));
-  refresh();
+  await refresh();
   return { ok: true };
 }
 
 export async function refreshPrices(): Promise<ActionResult & { detail?: Awaited<ReturnType<typeof refreshMarketPrices>> }> {
+  await prepareDatabase();
   const detail = await refreshMarketPrices();
-  refresh();
+  await refresh();
   if (!detail.updated.length && detail.skipped.length) {
     return { ok: false, error: detail.skipped[0]?.reason || "No prices were updated.", detail };
   }
@@ -454,21 +528,24 @@ export async function refreshPrices(): Promise<ActionResult & { detail?: Awaited
 }
 
 export async function loadSampleData(): Promise<ActionResult> {
+  await prepareDatabase();
   deleteSample();
   insertSample();
   setMeta("sample_loaded", "1");
-  refresh();
+  await refresh();
   return { ok: true, message: "Demonstration records were added. They are labeled Sample and are not your portfolio." };
 }
 
 export async function clearSampleData(): Promise<ActionResult> {
+  await prepareDatabase();
   deleteSample();
   setMeta("sample_loaded", "");
-  refresh();
+  await refresh();
   return { ok: true, message: "Demonstration records were removed." };
 }
 
 export async function importHoldingsCsv(form: FormData): Promise<ActionResult> {
+  await prepareDatabase();
   const file = form.get("file");
   if (!(file instanceof File)) return { ok: false, error: "Choose a CSV file." };
   const textBody = await file.text();
@@ -533,12 +610,13 @@ export async function importHoldingsCsv(form: FormData): Promise<ActionResult> {
     count += 1;
   }
   addAudit({ id: id(), entity: "import", entityId: "csv", action: "import", summary: `Imported ${count} holdings from CSV.`, createdAt: now() });
-  refresh();
+  await refresh();
   if (!count) return { ok: false, error: errors[0] || "Nothing was imported." };
   return { ok: true, message: `Imported ${count} holdings.${errors.length ? ` ${errors.length} rows were skipped. ${errors[0]}` : ""}` };
 }
 
 export async function importBackup(form: FormData): Promise<ActionResult> {
+  await prepareDatabase();
   const file = form.get("file");
   if (!(file instanceof File)) return { ok: false, error: "Choose a backup JSON file." };
   let parsed: {
@@ -571,11 +649,12 @@ export async function importBackup(form: FormData): Promise<ActionResult> {
     for (const row of parsed.allocations ?? []) upsertAllocation(row);
     for (const row of parsed.snapshots ?? []) upsertSnapshot(row);
   }
-  refresh();
+  await refresh();
   return { ok: true, message: mode === "replace" ? "Portfolio replaced from backup." : "Backup merged into the current portfolio." };
 }
 
 export async function backupPayload() {
+  await prepareDatabase();
   return {
     version: 1,
     exportedAt: now(),

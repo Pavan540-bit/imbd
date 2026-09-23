@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { Providers } from "@/components/providers";
 import { Shell } from "@/components/shell";
+import { storageMode } from "@/lib/db";
 import { loadPortfolio } from "@/lib/store";
 import "./globals.css";
 
@@ -15,13 +16,13 @@ export const metadata: Metadata = {
 
 export const dynamic = "force-dynamic";
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
-  const data = loadPortfolio();
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  const data = await loadPortfolio();
   return (
     <html suppressHydrationWarning lang="en">
       <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
         <Providers>
-          <Shell hasSample={data.hasSample}>{children}</Shell>
+          <Shell hasSample={data.hasSample} ephemeral={storageMode() === "ephemeral"}>{children}</Shell>
         </Providers>
       </body>
     </html>

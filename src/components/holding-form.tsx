@@ -208,6 +208,7 @@ export function HoldingForm({
           <>
             <Field label="Outstanding balance" name="manualValue" defaultValue={row?.manualValue} type="number" step="any" required hint="Balance before recorded EMI and lump-sum payments. Those payments are subtracted when the outstanding is shown." />
             <Field label="Monthly EMI" name="monthlyCost" defaultValue={row?.monthlyCost} type="number" step="any" hint="The scheduled monthly payment. It reduces the balance only after you record each EMI." />
+            <Field label="Lump sum (₹)" name="lumpSumAmount" type="number" step="any" hint="Optional prepayment saved with this loan. The full amount reduces the outstanding balance. Leave blank when you are only editing other details." />
             <Field label="Interest rate %" name="interestRate" defaultValue={row?.interestRate} type="number" step="any" />
           </>
         ) : null}
@@ -224,6 +225,7 @@ export function HoldingForm({
         {assetClass === "mutual_fund" ? (
           <>
             <Field label="SIP amount" name="sipAmount" defaultValue={row?.sipAmount} type="number" step="any" />
+            <Field label="Lump sum invested (₹)" name="lumpSumAmount" type="number" step="any" hint="Optional one-time purchase. Saved as a buy on the purchase date. Also enter the units and the price per unit above." />
             <SelectField
               label="SIP frequency"
               name="sipFrequency"
